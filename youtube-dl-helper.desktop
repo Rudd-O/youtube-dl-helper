@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=YouTube download helper
+Comment=Simple video downloader
+Exec=youtube-dl-helper
+Icon=youtube-dl-helper
+Terminal=false
+StartupNotify=true
+Type=Application
+Categories=AudioVideo;Video;Utility;GNOME;GTK;
