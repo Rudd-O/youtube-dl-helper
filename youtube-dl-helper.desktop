@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=YouTube download helper
 Comment=Simple video downloader
-Exec=youtube-dl-helper
+Exec=youtube-dl-helper %U
 Icon=youtube-dl-helper
 Terminal=false
 StartupNotify=true
