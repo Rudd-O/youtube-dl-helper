@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 
 import os
 import pickle
@@ -42,7 +42,11 @@ def received(fcdb, w, drag_context, x, y, data, info, time):
     cmd = ['youtube-dl', '--'] + uris
     cmd = ' '.join(shlex.quote(x) for x in cmd)
     cmd += ' && exit || { ret=$? ; >&2 echo There were errors.  Hit ENTER or close this window. ; read ; exit $ret ; }'
-    command = ['gnome-terminal', '--', 'bash', '-c', cmd]
+
+    if subprocess.call(["which", "gnome-terminal"]) == 0:
+        command = ['gnome-terminal', '--', 'bash', '-c', cmd]
+    else:
+        command = ['konsole', '-e', 'bash', '-c', cmd]
 
     def reap(child):
         ret = child.wait()
