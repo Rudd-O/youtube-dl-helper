@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-__version__ = '0.0.4'
+__version__ = '0.0.5'
 
 import os
 import pickle
@@ -14,6 +14,7 @@ import threading
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('Gdk', '3.0')
+from gi.repository import GObject
 from gi.repository import Gdk
 from gi.repository import Gtk
 
@@ -34,11 +35,7 @@ def find_file(name):
     raise KeyError(name)
 
 
-def received(fcdb, w, drag_context, x, y, data, info, time):
-    uris = data.get_uris() + data.get_text().replace("\n", " ").split()
-    if not uris:
-        return
-    destdir = fcdb.get_filename()
+def download(uris, destdir):
     cmd = ['youtube-dl', '--'] + uris
     cmd = ' '.join(shlex.quote(x) for x in cmd)
     cmd += ' && exit || { ret=$? ; >&2 echo There were errors.  Hit ENTER or close this window. ; read ; exit $ret ; }'
@@ -57,6 +54,14 @@ def received(fcdb, w, drag_context, x, y, data, info, time):
     t = threading.Thread(target=reap, args=(p,))
     t.setDaemon(True)
     t.start()
+    
+
+def received(fcdb, w, drag_context, x, y, data, info, time):
+    destdir = fcdb.get_filename()
+    uris = data.get_uris() + data.get_text().replace("\n", " ").split()
+    if not uris:
+        return
+    return download(uris, destdir)
 
 
 def load_config():
@@ -102,6 +107,11 @@ def main():
             del cfg["download_dir"]
         save_config(cfg)
         Gtk.main_quit()
+
+    args = sys.argv[1:]
+    if args:
+        GObject.idle_add(lambda *a, **kw: download(args, download_dir_fcdb.get_filename()))
+        GObject.idle_add(quit)
 
     main.connect("destroy", quit)
     main.show_all()
