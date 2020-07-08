@@ -112,10 +112,14 @@ def main():
     logo_pixbuf = GdkPixbuf.Pixbuf.new_from_file(
         find_file("pixmaps/youtube-dl-helper.png")
     )
+    logo.set_size_request(logo_pixbuf.get_width(), logo_pixbuf.get_height())
+    logo_size_requested = [False]
 
-    def draw_scaled_logo(w, cairo_t):
+    def draw_scaled_logo(w, cairo_t, size_requested):
+        if not logo_size_requested[0]:
+            logo.set_size_request(64, 64)
+            logo_size_requested[0] = True
         logo_allocation = w.get_allocation()
-        print("Size allocation", logo_allocation.height, logo_allocation.width)
         size = max([min([logo_allocation.height, logo_allocation.width]), 64])
         logo_pixbuf_scaled = logo_pixbuf.scale_simple(
             size, size, GdkPixbuf.InterpType.BILINEAR
@@ -125,7 +129,7 @@ def main():
         Gdk.cairo_set_source_pixbuf(cairo_t, logo_pixbuf_scaled, x, 0)
         cairo_t.paint()
 
-    logo.connect("draw", lambda w, cairo_t: draw_scaled_logo(w, cairo_t))
+    logo.connect("draw", lambda w, cairo_t: draw_scaled_logo(w, cairo_t, logo_size_requested))
 
     vbox = builder.get_object("vbox")
     download_dir_fcdb = builder.get_object("download_dir")
