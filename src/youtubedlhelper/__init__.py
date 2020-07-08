@@ -106,7 +106,7 @@ def main():
     builder = Gtk.Builder()
     builder.add_from_file(find_file("youtube-dl-helper/youtube-dl-helper.glade"))
 
-    main = builder.get_object("main")
+    main_window = builder.get_object("main_window")
     logo = builder.get_object("logo")
 
     logo_pixbuf = GdkPixbuf.Pixbuf.new_from_file(
@@ -137,9 +137,9 @@ def main():
         "activate", lambda *a, **kw: open_dir(download_dir_fcdb.get_filename())
     )
     global_action_group.add_action(open_download_dir_action)
-    main.insert_action_group("global_action_group", global_action_group)
+    main_window.insert_action_group("global_action_group", global_action_group)
     global_accel_group = Gtk.AccelGroup()
-    main.add_accel_group(global_accel_group)
+    main_window.add_accel_group(global_accel_group)
 
     open_download_dir = builder.get_object("open_download_dir")
     open_download_dir.set_action_name("global_action_group.open_download_dir")
@@ -173,8 +173,8 @@ def main():
         )
         GObject.idle_add(quit)
 
-    main.connect("destroy", quit)
-    main.show_all()
+    main_window.connect("destroy", quit)
+    main_window.show_all()
     Gtk.main()
 
 
