@@ -132,17 +132,19 @@ def main():
     download_dir_fcdb.set_filename(download_dir)
 
     global_action_group = Gio.SimpleActionGroup()
+    main_window.insert_action_group("global_action_group", global_action_group)
+
     open_download_dir_action = Gio.SimpleAction.new("open_download_dir", None)
     open_download_dir_action.connect(
         "activate", lambda *a, **kw: open_dir(download_dir_fcdb.get_filename())
     )
     global_action_group.add_action(open_download_dir_action)
-    main_window.insert_action_group("global_action_group", global_action_group)
-    global_accel_group = Gtk.AccelGroup()
-    main_window.add_accel_group(global_accel_group)
 
     open_download_dir = builder.get_object("open_download_dir")
     open_download_dir.set_action_name("global_action_group.open_download_dir")
+
+    global_accel_group = Gtk.AccelGroup()
+    main_window.add_accel_group(global_accel_group)
     open_download_dir.add_accelerator(
         "clicked",
         global_accel_group,
