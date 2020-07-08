@@ -15,8 +15,10 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+from gi.repository import Gio
 from gi.repository import GObject
 from gi.repository import Gdk
+from gi.repository import GdkPixbuf
 from gi.repository import Gtk
 
 
@@ -106,14 +108,35 @@ def main():
 
     main = builder.get_object("main")
     logo = builder.get_object("logo")
-    logo.set_from_file(find_file("pixmaps/youtube-dl-helper.png"))
+
+    logo_pixbuf = GdkPixbuf.Pixbuf.new_from_file(
+        find_file("pixmaps/youtube-dl-helper.png")
+    )
+    logo.set_from_pixbuf(logo_pixbuf)
+
     vbox = builder.get_object("vbox")
     download_dir_fcdb = builder.get_object("download_dir")
     download_dir_fcdb.set_filename(download_dir)
 
+    global_action_group = builder.get_object("global_action_group")
+    global_action_group = Gio.SimpleActionGroup()
+    open_download_dir_action = Gio.SimpleAction.new("open_download_dir", None)
+    open_download_dir_action.connect(
+        "activate", lambda *a, **kw: open_dir(download_dir_fcdb.get_filename())
+    )
+    global_action_group.add_action(open_download_dir_action)
+    main.insert_action_group("global_action_group", global_action_group)
+    global_accel_group = Gtk.AccelGroup()
+    main.add_accel_group(global_accel_group)
+
     open_download_dir = builder.get_object("open_download_dir")
-    open_download_dir.connect(
-        "clicked", lambda *a, **kw: open_dir(download_dir_fcdb.get_filename())
+    open_download_dir.set_action_name("global_action_group.open_download_dir")
+    open_download_dir.add_accelerator(
+        "clicked",
+        global_accel_group,
+        ord("o"),
+        Gdk.ModifierType.CONTROL_MASK,
+        Gtk.AccelFlags.VISIBLE,
     )
 
     received_with_fcdb = lambda *a, **kw: received(download_dir_fcdb, *a, **kw)

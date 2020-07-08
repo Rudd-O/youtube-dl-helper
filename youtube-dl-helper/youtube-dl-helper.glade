@@ -21,7 +21,7 @@
                 <property name="use_markup">True</property>
               </object>
               <packing>
-                <property name="expand">True</property>
+                <property name="expand">False</property>
                 <property name="fill">True</property>
                 <property name="position">0</property>
               </packing>
@@ -86,6 +86,7 @@
                     <property name="visible">True</property>
                     <property name="can_focus">True</property>
                     <property name="receives_default">True</property>
+                    <property name="tooltip_markup">Opens the selected download directory.  &lt;i&gt;Use &amp;lt;Ctrl+o&amp;gt; to activate.&lt;/i&gt;</property>
                     <child>
                       <object class="GtkImage" id="image1">
                         <property name="visible">True</property>
