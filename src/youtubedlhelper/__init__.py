@@ -120,6 +120,7 @@ def main():
         logo_pixbuf_scaled = logo_pixbuf.scale_simple(
             size, size, GdkPixbuf.InterpType.BILINEAR
         )
+        # Center the image by doing this little bit of math.
         x = (logo_allocation.width / 2) - (size / 2)
         Gdk.cairo_set_source_pixbuf(cairo_t, logo_pixbuf_scaled, x, 0)
         cairo_t.paint()
