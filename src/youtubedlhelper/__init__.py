@@ -36,6 +36,14 @@ def find_file(name):
     raise KeyError(name)
 
 
+def reap(child, msg):
+    ret = child.wait()
+    if ret != 0:
+        print(
+            msg + " (status code %s)" % ret, file=sys.stderr,
+        )
+
+
 def download(uris, destdir):
     cmd = ["youtube-dl", "--"] + uris
     cmd = " ".join(shlex.quote(x) for x in cmd)
@@ -46,17 +54,14 @@ def download(uris, destdir):
     else:
         command = ["konsole", "-e", "bash", "-c", cmd]
 
-    def reap(child):
-        ret = child.wait()
-        if ret != 0:
-            print(
-                "The GNOME terminal process running youtube-dl terminated with status code %s"
-                % ret,
-                file=sys.stderr,
-            )
-
     p = subprocess.Popen(command, cwd=destdir)
-    t = threading.Thread(target=reap, args=(p,))
+    t = threading.Thread(
+        target=reap,
+        args=(
+            p,
+            "The GNOME terminal process running youtube-dl terminated unexpectedly",
+        ),
+    )
     t.setDaemon(True)
     t.start()
 
@@ -67,6 +72,13 @@ def received(fcdb, w, drag_context, x, y, data, info, time):
     if not uris:
         return
     return download(uris, destdir)
+
+
+def open_dir(dir_):
+    p = subprocess.Popen(["xdg-open", dir_])
+    t = threading.Thread(target=reap, args=(p, "xdg-open terminated unexpectedly"))
+    t.setDaemon(True)
+    t.start()
 
 
 def load_config():
@@ -98,6 +110,11 @@ def main():
     vbox = builder.get_object("vbox")
     download_dir_fcdb = builder.get_object("download_dir")
     download_dir_fcdb.set_filename(download_dir)
+
+    open_download_dir = builder.get_object("open_download_dir")
+    open_download_dir.connect(
+        "clicked", lambda *a, **kw: open_dir(download_dir_fcdb.get_filename())
+    )
 
     received_with_fcdb = lambda *a, **kw: received(download_dir_fcdb, *a, **kw)
 
