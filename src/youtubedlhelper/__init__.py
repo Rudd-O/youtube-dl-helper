@@ -131,7 +131,6 @@ def main():
     download_dir_fcdb = builder.get_object("download_dir")
     download_dir_fcdb.set_filename(download_dir)
 
-    global_action_group = builder.get_object("global_action_group")
     global_action_group = Gio.SimpleActionGroup()
     open_download_dir_action = Gio.SimpleAction.new("open_download_dir", None)
     open_download_dir_action.connect(
