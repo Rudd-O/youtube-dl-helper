@@ -4,6 +4,7 @@ from __future__ import print_function
 
 __version__ = "0.0.8"
 
+import errno
 import os
 import pickle
 import shlex
@@ -13,8 +14,10 @@ import threading
 
 import gi
 
+gi.require_version("GLib", "2.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+from gi.repository import GLib
 from gi.repository import Gio
 from gi.repository import GObject
 from gi.repository import Gdk
@@ -22,8 +25,12 @@ from gi.repository import GdkPixbuf
 from gi.repository import Gtk
 
 
+GLib.threads_init()
+
+
 cfgdir = os.path.expanduser("~/.config/youtube-dl-helper")
 cfgfile = os.path.join(cfgdir, "config.pickle")
+download_params = ["--console-title"]
 
 
 def find_file(name):
@@ -38,42 +45,115 @@ def find_file(name):
     raise KeyError(name)
 
 
-def reap(child, msg):
-    ret = child.wait()
-    if ret != 0:
-        print(
-            msg + " (status code %s)" % ret, file=sys.stderr,
+def error_dialog(parent, message):
+    print(message, file=sys.stderr)
+    m = Gtk.MessageDialog(
+        parent,
+        Gtk.DialogFlags.DESTROY_WITH_PARENT | Gtk.DialogFlags.MODAL,
+        Gtk.MessageType.ERROR,
+        Gtk.ButtonsType.CLOSE,
+        str(message),
+    )
+    m.run()
+
+
+def filenames_too_long(filenames):
+    too_long = False
+    for f in filenames:
+        try:
+            with open(f):
+                pass
+        except OSError as e:
+            if e.errno == errno.ENAMETOOLONG:
+                too_long = True
+        except Exception:
+            pass
+    return too_long
+
+
+class Downloader(GObject.GObject):
+
+    __gsignals__ = {
+        "download-succeeded": (GObject.SIGNAL_RUN_FIRST, None, ()),
+        "download-failed": (GObject.SIGNAL_RUN_FIRST, None, (str,)),
+    }
+
+    def __init__(self):
+        GObject.GObject.__init__(self)
+
+    def _threaded_download(self, uris, destdir):
+        try:
+            filenames = subprocess.check_output(
+                ["youtube-dl", "--get-filename", "--"] + uris,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                cwd=destdir,
+            )
+            filenames = [s for s in filenames.splitlines() if s]
+        except subprocess.CalledProcessError as e:
+            msg = "youtube-dl experienced an error.\n\n" + e.stderr
+            GLib.idle_add(
+                lambda *a: self.emit("download-failed", msg),
+                priority=GLib.PRIORITY_HIGH,
+            )
+            raise
+        except Exception as ee:
+            msg = "youtube-dl failed to launch.\n\n%s" % ee
+            GLib.idle_add(
+                lambda *a: self.emit("download-failed", msg),
+                priority=GLib.PRIORITY_HIGH,
+            )
+            raise
+
+        filename_format = (
+            ["-o", "%(id)s.%(ext)s"] if filenames_too_long(filenames) else []
         )
 
+        cmd = ["youtube-dl"] + download_params + filename_format + ["--"] + uris
+        cmd = " ".join(shlex.quote(x) for x in cmd)
+        cmd += " && exit || { ret=$? ; >&2 echo There were errors.  Hit ENTER or close this window. ; read ; exit $ret ; }"
 
-def download(uris, destdir):
-    cmd = ["youtube-dl", "--"] + uris
-    cmd = " ".join(shlex.quote(x) for x in cmd)
-    cmd += " && exit || { ret=$? ; >&2 echo There were errors.  Hit ENTER or close this window. ; read ; exit $ret ; }"
+        with open(os.devnull, "w") as f:
+            if subprocess.call(["which", "gnome-terminal"], stdout=f, stderr=f) == 0:
+                command = ["gnome-terminal", "--", "bash", "-c", cmd]
+            else:
+                command = ["konsole", "-e", "bash", "-c", cmd]
 
-    if subprocess.call(["which", "gnome-terminal"]) == 0:
-        command = ["gnome-terminal", "--", "bash", "-c", cmd]
-    else:
-        command = ["konsole", "-e", "bash", "-c", cmd]
+        try:
+            p = subprocess.Popen(command, cwd=destdir)
+        except Exception as eee:
+            msg = "Terminal failed to execute.\n\n%s" % eee
+            GLib.idle_add(
+                lambda *a: self.emit("download-failed", msg),
+                priority=GLib.PRIORITY_HIGH,
+            )
+            raise
 
-    p = subprocess.Popen(command, cwd=destdir)
-    t = threading.Thread(
-        target=reap,
-        args=(
-            p,
-            "The GNOME terminal process running youtube-dl terminated unexpectedly",
-        ),
-    )
-    t.setDaemon(True)
-    t.start()
+        ret = p.wait()
+        if ret != 0:
+            GLib.idle_add(
+                lambda *a: self.emit(
+                    "download-failed",
+                    "Terminal exited unsuccessfully with status code %s." % ret,
+                ),
+                priority=GLib.PRIORITY_HIGH,
+            )
+        else:
+            GLib.idle_add(
+                lambda *a: self.emit("download-succeeded"), priority=GLib.PRIORITY_HIGH
+            )
+
+    def download(self, uris, destdir):
+        t = threading.Thread(target=self._threaded_download, args=(uris, destdir),)
+        t.start()
 
 
-def received(fcdb, w, drag_context, x, y, data, info, time):
+def received(downloader, fcdb, w, drag_context, x, y, data, info, time):
     destdir = fcdb.get_filename()
     uris = data.get_uris() + data.get_text().replace("\n", " ").split()
     if not uris:
         return
-    return download(uris, destdir)
+    return downloader.download(uris, destdir)
 
 
 def open_dir(dir_):
@@ -129,7 +209,9 @@ def main():
         Gdk.cairo_set_source_pixbuf(cairo_t, logo_pixbuf_scaled, x, 0)
         cairo_t.paint()
 
-    logo.connect("draw", lambda w, cairo_t: draw_scaled_logo(w, cairo_t, logo_size_requested))
+    logo.connect(
+        "draw", lambda w, cairo_t: draw_scaled_logo(w, cairo_t, logo_size_requested)
+    )
 
     vbox = builder.get_object("vbox")
     download_dir_fcdb = builder.get_object("download_dir")
@@ -157,7 +239,12 @@ def main():
         Gtk.AccelFlags.VISIBLE,
     )
 
-    received_with_fcdb = lambda *a, **kw: received(download_dir_fcdb, *a, **kw)
+    downloader = Downloader()
+    downloader.connect("download-failed", lambda _, msg: error_dialog(main_window, msg))
+
+    received_with_fcdb = lambda *a, **kw: received(
+        downloader, download_dir_fcdb, *a, **kw
+    )
 
     for w in [vbox]:
         w.drag_dest_set(Gtk.DestDefaults.ALL, [], Gdk.DragAction.COPY)
@@ -174,10 +261,9 @@ def main():
 
     args = sys.argv[1:]
     if args:
-        GObject.idle_add(
-            lambda *a, **kw: download(args, download_dir_fcdb.get_filename())
-        )
-        GObject.idle_add(quit)
+        downloader.download(args, download_dir_fcdb.get_filename())
+        downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
+        downloader.connect("download-succeeded", quit)
 
     main_window.connect("destroy", quit)
     main_window.show_all()
