@@ -4,13 +4,16 @@ from __future__ import print_function
 
 __version__ = "0.0.12"
 
+import contextlib
 import errno
 import os
 import pickle
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 
 import gi
 
@@ -67,13 +70,13 @@ class Notification(object):
         except GLib.Error:
             pass
 
-    def error(self):
+    def error(self, msg=""):
         if not self.n:
             return
         try:
             self.n.update(
                 "Error downloading video",
-                "Downloading %s failed" % self.link,
+                msg or "Downloading %s failed" % self.link,
                 "youtube-dl-helper",
             )
             self.n.set_timeout(Notify.EXPIRES_NEVER)
@@ -126,6 +129,37 @@ def filenames_too_long(filenames):
     return too_long
 
 
+def display_in_terminal(pathname):
+    cmd = "cat %s ; >&2 echo Hit ENTER or close this window. ; read" % (
+        shlex.quote(pathname),
+    )
+    with open(os.devnull, "w") as f:
+        if subprocess.call(["which", "gnome-terminal"], stdout=f, stderr=f) == 0:
+            command = ["gnome-terminal", "--", "bash", "-c", cmd]
+        else:
+            command = ["konsole", "-e", "bash", "-c", cmd]
+    p2 = subprocess.Popen(command)
+    x = threading.Thread(target=lambda: time.sleep(5) or p2.wait())
+    x.setDaemon(True)
+    x.start()
+
+
+@contextlib.contextmanager
+def fifocontext():
+    tmpdir = tempfile.mkdtemp()
+    fifo = os.path.join(tmpdir, "fifo")
+    try:
+        os.mkfifo(fifo)
+    except Exception:
+        os.rmdir(tmpdir)
+        raise
+    try:
+        yield fifo
+    finally:
+        os.unlink(fifo)
+        os.rmdir(tmpdir)
+
+
 class Downloader(GObject.GObject):
 
     __gsignals__ = {
@@ -148,7 +182,7 @@ class Downloader(GObject.GObject):
             filenames = [s for s in filenames.splitlines() if s]
         except subprocess.CalledProcessError as e:
             msg = "youtube-dl experienced an error.\n\n" + e.stderr
-            n.error()
+            n.error(msg)
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
                 priority=GLib.PRIORITY_HIGH,
@@ -156,7 +190,7 @@ class Downloader(GObject.GObject):
             raise
         except Exception as ee:
             msg = "youtube-dl failed to launch.\n\n%s" % ee
-            n.error()
+            n.error(msg)
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
                 priority=GLib.PRIORITY_HIGH,
@@ -167,43 +201,52 @@ class Downloader(GObject.GObject):
             ["-o", "%(id)s.%(ext)s"] if filenames_too_long(filenames) else []
         )
 
-        cmd = ["youtube-dl"] + download_params + filename_format + ["--"] + uris
-        cmd = " ".join(shlex.quote(x) for x in cmd)
-        cmd += " && exit || { ret=$? ; >&2 echo There were errors.  Hit ENTER or close this window. ; read ; exit $ret ; }"
+        with fifocontext() as fifo:
 
-        with open(os.devnull, "w") as f:
-            if subprocess.call(["which", "gnome-terminal"], stdout=f, stderr=f) == 0:
-                command = ["gnome-terminal", "--", "bash", "-c", cmd]
+            try:
+                display_in_terminal(fifo)
+
+            except Exception as eee:
+                msg = "Terminal failed to execute.\n\n%s" % eee
+                n.error(msg)
+                GLib.idle_add(
+                    lambda *a: self.emit("download-failed", msg),
+                    priority=GLib.PRIORITY_HIGH,
+                )
+                raise
+
+            try:
+                cmd = ["youtube-dl"] + download_params + filename_format + ["--"] + uris
+                with open(fifo, "wb") as fifofd:
+                    p = subprocess.Popen(
+                        cmd, cwd=destdir, stdout=fifofd, stderr=subprocess.STDOUT
+                    )
+
+            except Exception:
+                msg = "youtube-dl failed to execute.\n\n%s" % eee
+                n.error(msg)
+                GLib.idle_add(
+                    lambda *a: self.emit("download-failed", msg),
+                    priority=GLib.PRIORITY_HIGH,
+                )
+                raise
+
+            n.downloading()
+            ret = p.wait()
+
+            if ret != 0:
+                msg = "youtube-dl failed with return code %s." % ret
+                n.error(msg)
+                GLib.idle_add(
+                    lambda *a: self.emit("download-failed", msg,),
+                    priority=GLib.PRIORITY_HIGH,
+                )
             else:
-                command = ["konsole", "-e", "bash", "-c", cmd]
-
-        try:
-            p = subprocess.Popen(command, cwd=destdir)
-        except Exception as eee:
-            msg = "Terminal failed to execute.\n\n%s" % eee
-            n.error()
-            GLib.idle_add(
-                lambda *a: self.emit("download-failed", msg),
-                priority=GLib.PRIORITY_HIGH,
-            )
-            raise
-
-        n.downloading()
-        ret = p.wait()
-        if ret != 0:
-            n.error()
-            GLib.idle_add(
-                lambda *a: self.emit(
-                    "download-failed",
-                    "Terminal exited unsuccessfully with status code %s." % ret,
-                ),
-                priority=GLib.PRIORITY_HIGH,
-            )
-        else:
-            n.succeeded()
-            GLib.idle_add(
-                lambda *a: self.emit("download-succeeded"), priority=GLib.PRIORITY_HIGH
-            )
+                n.succeeded()
+                GLib.idle_add(
+                    lambda *a: self.emit("download-succeeded"),
+                    priority=GLib.PRIORITY_HIGH,
+                )
 
     def download(self, uris, destdir):
         t = threading.Thread(target=self._threaded_download, args=(uris, destdir),)
