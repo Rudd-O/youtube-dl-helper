@@ -16,7 +16,7 @@ readme = open(path_to_readme).read(-1)
 
 classifiers = [
 'Development Status :: 5 - Production/Stable',
-'Environment :: GUI',
+'Environment :: X11 Applications :: GTK',
 'Intended Audience :: End Users/Desktop',
 'License :: OSI Approved :: GNU General Public License (GPL)',
 'Operating System :: POSIX :: Linux',
