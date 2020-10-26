@@ -17,15 +17,69 @@ import gi
 gi.require_version("GLib", "2.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
+gi.require_version("Notify", "0.7")
 from gi.repository import GLib
 from gi.repository import Gio
 from gi.repository import GObject
 from gi.repository import Gdk
 from gi.repository import GdkPixbuf
 from gi.repository import Gtk
+from gi.repository import Notify
 
 
 GLib.threads_init()
+Notify.init("youtube-dl-helper")
+
+
+class Notification(object):
+    def __init__(self, link):
+        self.link = link
+        self.n = None
+        try:
+            self.n = Notify.Notification.new(
+                "Downloading video", "Inspecting %s" % self.link, "youtube-dl-helper"
+            )
+            self.n.show()
+        except GLib.Error:
+            pass
+
+    def downloading(self):
+        if not self.n:
+            return
+        try:
+            self.n.update(
+                "Downloading video", "Downloading %s" % self.link, "youtube-dl-helper"
+            )
+            self.n.show()
+        except GLib.Error:
+            pass
+
+    def succeeded(self):
+        if not self.n:
+            return
+        try:
+            self.n.update(
+                "Video downloaded",
+                "%s was successfully downloaded" % self.link,
+                "youtube-dl-helper",
+            )
+            self.n.show()
+        except GLib.Error:
+            pass
+
+    def error(self):
+        if not self.n:
+            return
+        try:
+            self.n.update(
+                "Error downloading video",
+                "Downloading %s failed" % self.link,
+                "youtube-dl-helper",
+            )
+            self.n.set_timeout(Notify.EXPIRES_NEVER)
+            self.n.show()
+        except GLib.Error:
+            pass
 
 
 cfgdir = os.path.expanduser("~/.config/youtube-dl-helper")
@@ -83,6 +137,7 @@ class Downloader(GObject.GObject):
         GObject.GObject.__init__(self)
 
     def _threaded_download(self, uris, destdir):
+        n = Notification(", ".join(uris))
         try:
             filenames = subprocess.check_output(
                 ["youtube-dl", "--get-filename", "--"] + uris,
@@ -93,6 +148,7 @@ class Downloader(GObject.GObject):
             filenames = [s for s in filenames.splitlines() if s]
         except subprocess.CalledProcessError as e:
             msg = "youtube-dl experienced an error.\n\n" + e.stderr
+            n.error()
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
                 priority=GLib.PRIORITY_HIGH,
@@ -100,6 +156,7 @@ class Downloader(GObject.GObject):
             raise
         except Exception as ee:
             msg = "youtube-dl failed to launch.\n\n%s" % ee
+            n.error()
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
                 priority=GLib.PRIORITY_HIGH,
@@ -124,14 +181,17 @@ class Downloader(GObject.GObject):
             p = subprocess.Popen(command, cwd=destdir)
         except Exception as eee:
             msg = "Terminal failed to execute.\n\n%s" % eee
+            n.error()
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
                 priority=GLib.PRIORITY_HIGH,
             )
             raise
 
+        n.downloading()
         ret = p.wait()
         if ret != 0:
+            n.error()
             GLib.idle_add(
                 lambda *a: self.emit(
                     "download-failed",
@@ -140,6 +200,7 @@ class Downloader(GObject.GObject):
                 priority=GLib.PRIORITY_HIGH,
             )
         else:
+            n.succeeded()
             GLib.idle_add(
                 lambda *a: self.emit("download-succeeded"), priority=GLib.PRIORITY_HIGH
             )
