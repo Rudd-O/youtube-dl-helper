@@ -55,13 +55,14 @@ def error_dialog(parent, message):
         str(message),
     )
     m.run()
+    m.destroy()
 
 
 def filenames_too_long(filenames):
     too_long = False
     for f in filenames:
         try:
-            with open(f):
+            with open(f + ".part"):
                 pass
         except OSError as e:
             if e.errno == errno.ENAMETOOLONG:
