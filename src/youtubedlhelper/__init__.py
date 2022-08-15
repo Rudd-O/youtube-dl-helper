@@ -2,13 +2,14 @@
 
 from __future__ import print_function
 
-__version__ = "0.0.15"
+__version__ = "0.0.16"
 
 import contextlib
 import errno
 import os
 import pickle
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
