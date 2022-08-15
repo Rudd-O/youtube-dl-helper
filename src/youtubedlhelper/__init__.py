@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-__version__ = "0.0.14"
+__version__ = "0.0.15"
 
 import contextlib
 import errno
