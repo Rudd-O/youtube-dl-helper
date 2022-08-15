@@ -169,27 +169,29 @@ class Downloader(GObject.GObject):
 
     def __init__(self):
         GObject.GObject.__init__(self)
+        self.program = shutil.which("yt-dlp") or shutil.which("youtube-dl")
 
     def _threaded_download(self, uris, destdir):
         n = Notification(", ".join(uris))
+        if not self.program:
+            msg = "Neither yt-dlp nor youtube-dl are installed.\n"
+            n.error(msg)
+            GLib.idle_add(
+                lambda *a: self.emit("download-failed", msg),
+                priority=GLib.PRIORITY_HIGH,
+            )
+            return
+
         try:
             filenames = subprocess.check_output(
-                ["youtube-dl", "--get-filename", "--"] + uris,
+                [self.program, "--get-filename", "--"] + uris,
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
                 cwd=destdir,
             )
             filenames = [s for s in filenames.splitlines() if s]
         except subprocess.CalledProcessError as e:
-            msg = "youtube-dl experienced an error.\n\n" + e.stderr
-            n.error(msg)
-            GLib.idle_add(
-                lambda *a: self.emit("download-failed", msg),
-                priority=GLib.PRIORITY_HIGH,
-            )
-            raise
-        except Exception as ee:
-            msg = "youtube-dl failed to launch.\n\n%s" % ee
+            msg = f"{self.program} experienced an error.\n\n" + e.stderr
             n.error(msg)
             GLib.idle_add(
                 lambda *a: self.emit("download-failed", msg),
@@ -216,14 +218,14 @@ class Downloader(GObject.GObject):
                 raise
 
             try:
-                cmd = ["youtube-dl"] + download_params + filename_format + ["--"] + uris
+                cmd = [self.program] + download_params + filename_format + ["--"] + uris
                 with open(fifo, "wb") as fifofd:
                     p = subprocess.Popen(
                         cmd, cwd=destdir, stdout=fifofd, stderr=subprocess.STDOUT
                     )
 
             except Exception:
-                msg = "youtube-dl failed to execute.\n\n%s" % eee
+                msg = f"{self.program} failed to execute.\n\n{eee}"
                 n.error(msg)
                 GLib.idle_add(
                     lambda *a: self.emit("download-failed", msg),
@@ -235,7 +237,7 @@ class Downloader(GObject.GObject):
             ret = p.wait()
 
             if ret != 0:
-                msg = "youtube-dl failed with return code %s." % ret
+                msg = "{self.program} failed with return code {ret}."
                 n.error(msg)
                 GLib.idle_add(
                     lambda *a: self.emit("download-failed", msg,),
