@@ -22,6 +22,8 @@ gi.require_version("GLib", "2.0")
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Notify", "0.7")
+gi.require_version("Vte", "2.91")
+
 from gi.repository import GLib
 from gi.repository import Gio
 from gi.repository import GObject
@@ -29,6 +31,7 @@ from gi.repository import Gdk
 from gi.repository import GdkPixbuf
 from gi.repository import Gtk
 from gi.repository import Notify
+from gi.repository import Vte
 
 
 GLib.threads_init()
@@ -130,37 +133,6 @@ def filenames_too_long(filenames):
     return too_long
 
 
-def display_in_terminal(pathname):
-    cmd = "cat %s ; >&2 echo Hit ENTER or close this window. ; read" % (
-        shlex.quote(pathname),
-    )
-    with open(os.devnull, "w") as f:
-        if subprocess.call(["which", "gnome-terminal"], stdout=f, stderr=f) == 0:
-            command = ["gnome-terminal", "--", "bash", "-c", cmd]
-        else:
-            command = ["konsole", "-e", "bash", "-c", cmd]
-    p2 = subprocess.Popen(command)
-    x = threading.Thread(target=lambda: time.sleep(5) or p2.wait())
-    x.setDaemon(True)
-    x.start()
-
-
-@contextlib.contextmanager
-def fifocontext():
-    tmpdir = tempfile.mkdtemp()
-    fifo = os.path.join(tmpdir, "fifo")
-    try:
-        os.mkfifo(fifo)
-    except Exception:
-        os.rmdir(tmpdir)
-        raise
-    try:
-        yield fifo
-    finally:
-        os.unlink(fifo)
-        os.rmdir(tmpdir)
-
-
 class Downloader(GObject.GObject):
 
     __gsignals__ = {
@@ -204,44 +176,25 @@ class Downloader(GObject.GObject):
             ["-o", "%(id)s.%(ext)s"] if filenames_too_long(filenames) else []
         )
 
-        with fifocontext() as fifo:
-
-            try:
-                display_in_terminal(fifo)
-
-            except Exception as eee:
-                msg = "Terminal failed to execute.\n\n%s" % eee
+        def eval_result(retval):
+            if not isinstance(retval, int):
+                msg = f"{self.program} did not run: {retval}"
                 n.error(msg)
                 GLib.idle_add(
-                    lambda *a: self.emit("download-failed", msg),
+                    lambda *a: self.emit(
+                        "download-failed",
+                        msg,
+                    ),
                     priority=GLib.PRIORITY_HIGH,
                 )
-                raise
-
-            try:
-                cmd = [self.program] + download_params + filename_format + ["--"] + uris
-                with open(fifo, "wb") as fifofd:
-                    p = subprocess.Popen(
-                        cmd, cwd=destdir, stdout=fifofd, stderr=subprocess.STDOUT
-                    )
-
-            except Exception:
-                msg = f"{self.program} failed to execute.\n\n{eee}"
+            elif retval != 0:
+                msg = f"{self.program} failed with return code {retval}."
                 n.error(msg)
                 GLib.idle_add(
-                    lambda *a: self.emit("download-failed", msg),
-                    priority=GLib.PRIORITY_HIGH,
-                )
-                raise
-
-            n.downloading()
-            ret = p.wait()
-
-            if ret != 0:
-                msg = "{self.program} failed with return code {ret}."
-                n.error(msg)
-                GLib.idle_add(
-                    lambda *a: self.emit("download-failed", msg,),
+                    lambda *a: self.emit(
+                        "download-failed",
+                        msg,
+                    ),
                     priority=GLib.PRIORITY_HIGH,
                 )
             else:
@@ -251,12 +204,92 @@ class Downloader(GObject.GObject):
                     priority=GLib.PRIORITY_HIGH,
                 )
 
+        if len(filenames) == 1:
+            title = filenames[0]
+        else:
+            title = "%s downloads" % len(filenames)
+        cmd = [self.program] + download_params + filename_format + ["--"]
+        cmd.extend(uris)
+        n.downloading()
+        GLib.idle_add(
+            lambda *_: self.spawn_vte(
+                title,
+                cmd,
+                destdir,
+                eval_result,
+            ),
+        )
+
+    def spawn_vte(self, title, cmd, destdir, retval_cb):
+        w = Gtk.Window()
+        w.set_title(title)
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+        )
+        w.add(box)
+
+        v = Vte.Terminal()
+        box.add(v)
+
+        scrollbar = Gtk.Scrollbar(
+            orientation=Gtk.Orientation.VERTICAL,
+            adjustment=v.get_vadjustment(),
+        )
+        box.add(scrollbar)
+
+        w.show_all()
+
+        pty_flags = Vte.PtyFlags.DEFAULT
+        wd = destdir
+        env = None
+        gspawnflags = GLib.SpawnFlags.DEFAULT
+        child_setup = None
+        child_setup_data_destroy = None
+        timeout = -1
+        cancellable = None
+
+        def cb(vte, pid, error):
+            if error:
+                retval_cb(error)
+            vte.connect(
+                "child-exited",
+                lambda _, retval: retval_cb(retval),
+            )
+            # vte.watch_child(pid)
+
+        v.spawn_async(
+            pty_flags,
+            wd,
+            cmd,
+            env,
+            gspawnflags,
+            child_setup,
+            child_setup_data_destroy,
+            timeout,
+            cancellable,
+            cb,
+        )
+
     def download(self, uris, destdir):
-        t = threading.Thread(target=self._threaded_download, args=(uris, destdir),)
+        t = threading.Thread(
+            target=self._threaded_download,
+            args=(uris, destdir),
+        )
         t.start()
 
 
-def received(downloader, fcdb, w, drag_context, x, y, data, info, time):
+def received(
+    downloader,
+    fcdb,
+    w,
+    drag_context,
+    x,
+    y,
+    data,
+    info,
+    unused_time,
+):
     destdir = fcdb.get_filename()
     uris = data.get_uris() + data.get_text().replace("\n", " ").split()
     if not uris:
@@ -266,7 +299,7 @@ def received(downloader, fcdb, w, drag_context, x, y, data, info, time):
 
 def open_dir(dir_):
     p = subprocess.Popen(["xdg-open", dir_])
-    t = threading.Thread(target=reap, args=(p, "xdg-open terminated unexpectedly"))
+    t = threading.Thread(target=lambda: p.wait())  # FIXME handle error
     t.setDaemon(True)
     t.start()
 
@@ -318,7 +351,12 @@ def main():
         cairo_t.paint()
 
     logo.connect(
-        "draw", lambda w, cairo_t: draw_scaled_logo(w, cairo_t, logo_size_requested)
+        "draw",
+        lambda w, cairo_t: draw_scaled_logo(
+            w,
+            cairo_t,
+            logo_size_requested,
+        ),
     )
 
     vbox = builder.get_object("vbox")
@@ -348,8 +386,10 @@ def main():
     )
 
     downloader = Downloader()
-    downloader.connect("download-failed", lambda _, msg: error_dialog(main_window, msg))
-
+    downloader.connect(
+        "download-failed",
+        lambda _, msg: error_dialog(main_window, msg),
+    )
     received_with_fcdb = lambda *a, **kw: received(
         downloader, download_dir_fcdb, *a, **kw
     )
@@ -370,6 +410,8 @@ def main():
     args = sys.argv[1:]
     if args:
         downloader.download(args, download_dir_fcdb.get_filename())
+        # downloader.connect("download-failed", lambda *_: print("success"))
+        # downloader.connect("download-succeeded", lambda *_: print("failure"))
         downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
         downloader.connect("download-succeeded", quit)
 
