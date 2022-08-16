@@ -266,17 +266,27 @@ class Downloader(GObject.GObject):
                 return
             text = v.get_text()[0]
             lns = text.splitlines()
-            lns = [i for i in lns if i.strip() and i.startswith("[download]")]
+
+            def qualifies(i):
+                if i.startswith("[download]"):
+                    return True
+                if i.startswith("[Merger]") or i.startswith("merger"):
+                    return True
+
+            lns = [i for i in lns if i.strip() and qualifies(i)]
             if lns:
                 lastline = lns[-1]
             else:
                 lastline = ""
             m = re.match("\\[download] +([0-9.]+)%.*", lastline)
             w = re.match(".*has already been downloaded.*", lastline)
+            mrg = re.match("\\[.erger].*", lastline)
             if m:
                 percent = float(m.groups(1)[0]) / 100.0
             elif w:
                 percent = 1.0
+            elif mrg:
+                percent = "pulse"
             else:
                 percent = "pulse"
             if percent == "pulse":
@@ -286,8 +296,12 @@ class Downloader(GObject.GObject):
             return True
 
         def child_exited(retval):
+            finished.append(True)
             w.set_title(w.get_title() + " (exited)")
+            if retval == 0:
+                progressbar.set_fraction(1.0)
             progressbar.set_text("Finished")
+            retval_cb(retval)
 
         def cb(vte, unused_pid, error):
             if error:
@@ -299,15 +313,7 @@ class Downloader(GObject.GObject):
             GLib.timeout_add(100, update_progress)
             vte.connect(
                 "child-exited",
-                lambda _, retval: retval_cb(retval),
-            )
-            vte.connect(
-                "child-exited",
                 lambda _, retval: child_exited(retval),
-            )
-            vte.connect(
-                "child-exited",
-                lambda *_: finished.append(True),
             )
             vte.connect(
                 "destroy",
@@ -468,10 +474,10 @@ def main():
     args = sys.argv[1:]
     if args:
         downloader.download(args, download_dir_fcdb.get_filename())
-        downloader.connect("download-failed", lambda *_: print("failed"))
-        downloader.connect("download-succeeded", lambda *_: print("succeeded"))
-        # downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
-        # downloader.connect("download-succeeded", quit)
+        # downloader.connect("download-failed", lambda *_: print("failed"))
+        # downloader.connect("download-succeeded", lambda *_: print("succeeded"))
+        downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
+        downloader.connect("download-succeeded", quit)
 
     main_window.connect("destroy", quit)
     main_window.show_all()
