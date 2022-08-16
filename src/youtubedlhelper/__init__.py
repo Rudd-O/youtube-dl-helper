@@ -295,25 +295,30 @@ class Downloader(GObject.GObject):
                 progressbar.set_fraction(percent)
             return True
 
-        def child_exited(retval):
+        def child_exited(vte, retval):
             finished.append(True)
             w.set_title(w.get_title() + " (exited)")
             if retval == 0:
                 progressbar.set_fraction(1.0)
-            progressbar.set_text("Finished")
+                progressbar.set_text("Finished")
+                vte.set_color_foreground(Gdk.RGBA(0, 0.9, 0, 0))
+            else:
+                progressbar.set_text(f"Failed with return code {retval}")
+                vte.set_color_foreground(Gdk.RGBA(0.9, 0, 0, 0))
             retval_cb(retval)
 
         def cb(vte, unused_pid, error):
             if error:
                 w.set_title(w.get_title() + " (never ran)")
                 progressbar.set_text("Could not run")
+                vte.set_color_foreground(Gdk.RGBA(0.9, 0, 0, 0))
                 retval_cb(error)
                 return
 
             GLib.timeout_add(100, update_progress)
             vte.connect(
                 "child-exited",
-                lambda _, retval: child_exited(retval),
+                child_exited,
             )
             vte.connect(
                 "destroy",
