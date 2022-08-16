@@ -4,17 +4,14 @@ from __future__ import print_function
 
 __version__ = "0.0.16"
 
-import contextlib
 import errno
 import os
 import pickle
-import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
-import time
+import re
 
 import gi
 
@@ -24,14 +21,14 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("Notify", "0.7")
 gi.require_version("Vte", "2.91")
 
-from gi.repository import GLib
-from gi.repository import Gio
-from gi.repository import GObject
-from gi.repository import Gdk
-from gi.repository import GdkPixbuf
-from gi.repository import Gtk
-from gi.repository import Notify
-from gi.repository import Vte
+from gi.repository import GLib  # noqa: E402
+from gi.repository import Gio  # noqa: E402
+from gi.repository import GObject  # noqa: E402
+from gi.repository import Gdk  # noqa: E402
+from gi.repository import GdkPixbuf  # noqa: E402
+from gi.repository import Gtk  # noqa: E402
+from gi.repository import Notify  # noqa: E402
+from gi.repository import Vte  # noqa: E402
 
 
 GLib.threads_init()
@@ -41,21 +38,27 @@ Notify.init("youtube-dl-helper")
 class Notification(object):
     def __init__(self, link):
         self.link = link
+        self.title = None
         self.n = None
         try:
             self.n = Notify.Notification.new(
-                "Downloading video", "Inspecting %s" % self.link, "youtube-dl-helper"
+                "Downloading video",
+                "Inspecting %s" % self.link,
+                "youtube-dl-helper",
             )
             self.n.show()
         except GLib.Error:
             pass
 
-    def downloading(self):
+    def downloading(self, title=None):
+        self.title = title or self.link
         if not self.n:
             return
         try:
             self.n.update(
-                "Downloading video", "Downloading %s" % self.link, "youtube-dl-helper"
+                "Downloading video",
+                "Downloading %s" % self.title,
+                "youtube-dl-helper",
             )
             self.n.show()
         except GLib.Error:
@@ -67,7 +70,7 @@ class Notification(object):
         try:
             self.n.update(
                 "Video downloaded",
-                "%s was successfully downloaded" % self.link,
+                "%s was successfully downloaded" % self.title,
                 "youtube-dl-helper",
             )
             self.n.show()
@@ -80,7 +83,7 @@ class Notification(object):
         try:
             self.n.update(
                 "Error downloading video",
-                msg or "Downloading %s failed" % self.link,
+                msg or "Downloading %s failed" % self.title,
                 "youtube-dl-helper",
             )
             self.n.set_timeout(Notify.EXPIRES_NEVER)
@@ -210,7 +213,7 @@ class Downloader(GObject.GObject):
             title = "%s downloads" % len(filenames)
         cmd = [self.program] + download_params + filename_format + ["--"]
         cmd.extend(uris)
-        n.downloading()
+        n.downloading(title)
         GLib.idle_add(
             lambda *_: self.spawn_vte(
                 title,
@@ -227,7 +230,6 @@ class Downloader(GObject.GObject):
         box = Gtk.Box(
             orientation=Gtk.Orientation.HORIZONTAL,
         )
-        w.add(box)
 
         v = Vte.Terminal()
         box.add(v)
@@ -238,6 +240,14 @@ class Downloader(GObject.GObject):
         )
         box.add(scrollbar)
 
+        hbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        progressbar = Gtk.ProgressBar()
+        progressbar.set_show_text(True)
+        hbox.add(progressbar)
+        hbox.add(box)
+
+        w.add(hbox)
         w.show_all()
 
         pty_flags = Vte.PtyFlags.DEFAULT
@@ -249,14 +259,60 @@ class Downloader(GObject.GObject):
         timeout = -1
         cancellable = None
 
-        def cb(vte, pid, error):
+        finished = []
+
+        def update_progress(message=None):
+            if finished:
+                return
+            text = v.get_text()[0]
+            lns = text.splitlines()
+            lns = [i for i in lns if i.strip() and i.startswith("[download]")]
+            if lns:
+                lastline = lns[-1]
+            else:
+                lastline = ""
+            m = re.match("\\[download] +([0-9.]+)%.*", lastline)
+            w = re.match(".*has already been downloaded.*", lastline)
+            if m:
+                percent = float(m.groups(1)[0]) / 100.0
+            elif w:
+                percent = 1.0
+            else:
+                percent = "pulse"
+            if percent == "pulse":
+                progressbar.pulse()
+            else:
+                progressbar.set_fraction(percent)
+            return True
+
+        def child_exited(retval):
+            w.set_title(w.get_title() + " (exited)")
+            progressbar.set_text("Finished")
+
+        def cb(vte, unused_pid, error):
             if error:
+                w.set_title(w.get_title() + " (never ran)")
+                progressbar.set_text("Could not run")
                 retval_cb(error)
+                return
+
+            GLib.timeout_add(100, update_progress)
             vte.connect(
                 "child-exited",
                 lambda _, retval: retval_cb(retval),
             )
-            # vte.watch_child(pid)
+            vte.connect(
+                "child-exited",
+                lambda _, retval: child_exited(retval),
+            )
+            vte.connect(
+                "child-exited",
+                lambda *_: finished.append(True),
+            )
+            vte.connect(
+                "destroy",
+                lambda *_: finished.append(True),
+            )
 
         v.spawn_async(
             pty_flags,
@@ -325,7 +381,9 @@ def main():
     download_dir = cfg.get("download_dir", os.path.expanduser("~"))
 
     builder = Gtk.Builder()
-    builder.add_from_file(find_file("youtube-dl-helper/youtube-dl-helper.glade"))
+    builder.add_from_file(
+        find_file("youtube-dl-helper/youtube-dl-helper.glade"),
+    )
 
     main_window = builder.get_object("main_window")
     logo = builder.get_object("logo")
@@ -390,9 +448,9 @@ def main():
         "download-failed",
         lambda _, msg: error_dialog(main_window, msg),
     )
-    received_with_fcdb = lambda *a, **kw: received(
-        downloader, download_dir_fcdb, *a, **kw
-    )
+
+    def received_with_fcdb(*a, **kw):
+        return received(downloader, download_dir_fcdb, *a, **kw)
 
     for w in [vbox]:
         w.drag_dest_set(Gtk.DestDefaults.ALL, [], Gdk.DragAction.COPY)
@@ -410,10 +468,10 @@ def main():
     args = sys.argv[1:]
     if args:
         downloader.download(args, download_dir_fcdb.get_filename())
-        # downloader.connect("download-failed", lambda *_: print("success"))
-        # downloader.connect("download-succeeded", lambda *_: print("failure"))
-        downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
-        downloader.connect("download-succeeded", quit)
+        downloader.connect("download-failed", lambda *_: print("failed"))
+        downloader.connect("download-succeeded", lambda *_: print("succeeded"))
+        # downloader.connect("download-failed", lambda *a: [quit(), sys.exit(1)])
+        # downloader.connect("download-succeeded", quit)
 
     main_window.connect("destroy", quit)
     main_window.show_all()
