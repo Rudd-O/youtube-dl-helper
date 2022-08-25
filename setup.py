@@ -43,7 +43,7 @@ setup(
 	data_files = [
 		('share/youtube-dl-helper', ['youtube-dl-helper/youtube-dl-helper.glade']),
 		('share/pixmaps', ['pixmaps/youtube-dl-helper.png']),
-		("/usr/share/applications", ["youtube-dl-helper.desktop"]),
+		("share/applications", ["youtube-dl-helper.desktop"]),
 	],
 	scripts = ['bin/youtube-dl-helper'],
 	keywords = "YouTube download",
