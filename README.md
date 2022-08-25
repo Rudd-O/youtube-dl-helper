@@ -3,6 +3,10 @@
 Drag and drop URLs from your browser to this application to download YouTube
 videos using `youtube-dl` or `yt-dlp`.
 
+<p align="center">
+  <img src="doc/screenshot.png" />
+</p>
+
 Requires `youtube-dl` or `yt-dlp` installed in your system and in your `PATH`.
 
 ## Installation
