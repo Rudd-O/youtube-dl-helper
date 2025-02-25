@@ -1,1 +1,4 @@
 include README.md
+include src/youtubedlhelper/youtube-dl-helper.glade
+include src/youtubedlhelper/applications/*.desktop
+include src/youtubedlhelper/pixmaps/*

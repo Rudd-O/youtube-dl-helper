@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+dynamic = ["version", "readme"]
+name = "youtube-dl-helper"
+authors = [
+    {name = "Manuel Amador (Rudd-O)", email = "rudd-o@rudd-o.com"}
+]
+description = "A tool to automate YouTube downloads via drag and drop"
+keywords = ["media", "archiving", "duplicate"]
+classifiers = [
+    'Development Status :: 5 - Production/Stable',
+    'Environment :: X11 Applications :: GTK',
+    'Intended Audience :: End Users/Desktop',
+    'License :: OSI Approved :: GNU General Public License (GPL)',
+    'Operating System :: POSIX :: Linux',
+    'Programming Language :: Python :: 3 :: Only',
+    'Programming Language :: Python :: 3.6',
+    'Topic :: Communications :: File Sharing',
+    'Topic :: Utilities',
+]
+
+[project.urls]
+Homepage = "https://github.com/Rudd-O/youtube-dl-helper"
+Repository = "https://github.com/Rudd-O/youtube-dl-helper"
+Issues = "https://github.com/Rudd-O/youtube-dl-helper/issues"
+
+[project.scripts]
+youtube-dl-helper = "youtubedlhelper:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "youtubedlhelper.__version__"}
+readme = {file = "README.md"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+youtubedlhelper = [
+    "src/youtubedlhelper/youtube-dl-helper.glade",
+    "src/youtubedlhelper/pixmaps/*",
+    "src/youtubedlhelper/applications/*.desktop",
+]

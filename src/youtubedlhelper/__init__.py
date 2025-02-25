@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-__version__ = "0.0.16"
+__version__ = "0.0.17"
 
 import errno
 import os
@@ -20,6 +20,8 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("Notify", "0.7")
 gi.require_version("Vte", "2.91")
+
+from importlib.resources import files
 
 from gi.repository import GLib  # noqa: E402
 from gi.repository import Gio  # noqa: E402
@@ -98,15 +100,7 @@ download_params = ["--console-title"]
 
 
 def find_file(name):
-    if os.path.exists(name):
-        return name
-    path = os.path.abspath(os.path.dirname(__file__))
-    while path != "/":
-        p = os.path.join(path, "share", name)
-        if os.path.exists(p):
-            return p
-        path = os.path.dirname(path)
-    raise KeyError(name)
+    return str(files("youtubedlhelper").joinpath(name))
 
 
 def error_dialog(parent, message):
@@ -393,7 +387,7 @@ def main():
 
     builder = Gtk.Builder()
     builder.add_from_file(
-        find_file("youtube-dl-helper/youtube-dl-helper.glade"),
+        find_file("youtube-dl-helper.glade"),
     )
 
     main_window = builder.get_object("main_window")
