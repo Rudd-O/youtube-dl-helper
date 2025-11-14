@@ -9,7 +9,7 @@
 %define mybuildnumber %{?build_number}%{?!build_number:1}
 
 Name:           %{_name}
-Version:        0.0.17
+Version:        0.0.18
 Release:        %{mybuildnumber}%{?dist}
 Summary:        A tool to automate YouTube downloads via drag and drop
 

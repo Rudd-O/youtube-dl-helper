@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 
-__version__ = "0.0.17"
+__version__ = "0.0.18"
 
 import errno
 import os

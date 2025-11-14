@@ -3,3 +3,4 @@ include src/youtubedlhelper/youtube-dl-helper.glade
 include src/youtubedlhelper/applications/*.desktop
 include src/youtubedlhelper/pixmaps/*
 include doc/screenshot.png
+include tox.ini
